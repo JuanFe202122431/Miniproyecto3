@@ -1,0 +1,678 @@
+# importar librerías importantes
+import os
+import random
+import numpy as np
+from glob import glob
+from matplotlib import pyplot as plt
+from collections import Counter
+import pandas as pd
+import cv2
+
+
+group = 13 
+
+
+def determine_classes(group: int) -> list:
+    """Función que determina las clases a utilizar en el proyecto.
+
+    Args:
+        group (int): Número de grupo.
+
+    Returns:
+        list: Lista con los nombres de las clases a utilizar.
+    """
+    # Se fija la semilla para reproducibilidad
+    random.seed(group)
+    
+    # Se obtienen las categorías y la cantidad de imágenes por categoría
+    stats = [('Canis latrans', 1286), ('Castor canadensis', 854), ('Dasypus novemcinctus', 515), ('Didelphis virginiana', 713), 
+             ('Lepus californicus', 515), ('Lynx rufus', 854), ('Megaptera novaeangliae', 515), ('Mephitis mephitis', 515), 
+             ('Odocoileus hemionus', 1286), ('Odocoileus virginianus', 1795), ('Otospermophilus beecheyi', 854), 
+             ('Otospermophilus variegatus', 515), ('Phoca vitulina', 713), ('Procyon lotor', 1286), ('Sciurus carolinensis', 1795), 
+             ('Sciurus niger', 1795), ('Sylvilagus audubonii', 515), ('Sylvilagus floridanus', 854), ('Tamias striatus', 854), 
+             ('Tamiasciurus hudsonicus', 713), ('Urocyon cinereoargenteus', 515), ('Ursus americanus', 713), ('Vulpes vulpes', 854)]
+    
+    # Se agrupan las categorías por cantidad de imágenes
+    clusters = {}
+    for category, num_images in stats:
+        if num_images in clusters:
+            clusters[num_images].append(category)
+        else:
+            clusters[num_images] = [category]
+    
+    # Se selecciona una categoría aleatoria de cada cluster
+    categories = []
+    for cluster_categories in clusters.values():
+        categories += [random.choice(cluster_categories)]
+    return categories
+
+assert group is not None, "Por favor, asigna un número de grupo a la variable 'group'."
+assert group > 0, "El número de grupo debe ser mayor que 0."
+assert group <= 28, "El número de grupo debe ser menor o igual que 28."
+
+categories = determine_classes(group)
+print(f"Las classes que usarán en este Mini-proyecto serán:\n{", ".join(categories)}.")
+
+
+dict_labels = {} # Cambiar por un diccionario con las etiquetas de las clases 
+
+# YOUR CODE HERE
+clases= ["Odocoileus hemionus","Otospermophilus beecheyi","Phoca vitulina","Sciurus niger", "Sylvilagus audubonii"]
+dict_labels={"Odocoileus hemionus":0, "Otospermophilus beecheyi":1,"Phoca vitulina":2,"Sciurus niger":3, "Sylvilagus audubonii":4}
+
+
+def get_data(subset: str) -> tuple[list, list]:
+    """Función que obtiene las rutas de las imágenes y sus etiquetas.
+
+    Args:
+        subset (str): Nombre del subconjunto de datos
+
+    Returns:
+        tuple[list, list]: Rutas de las imágenes y sus etiquetas.
+    """
+    
+    
+    paths=[] # Cambiar por una lista con las rutas de las imágenes 
+    labels=[] # Cambiar por una lista con las etiquetas de las imágenes
+    
+    # Construimos la ruta base al subconjunto (train, valid o test)
+    
+    base_path=f"dataset/{subset}"
+    
+    # Recorremos cada una de las clases que nos asignaron
+    for nombre in clases:
+        # Construimos la ruta de la carpeta de esa clase
+        class_path = os.path.join(base_path, nombre)
+        # Usamos glob para obtener todas las imágenes dentro de esa carpeta
+        image_paths = glob(os.path.join(class_path, "*"))
+        # Ahora recorremos cada imagen encontrada
+        for img_path in image_paths:
+            # Guardamos la ruta de la imagen
+            paths.append(img_path)
+            # Guardamos la etiqueta correspondiente usando el diccionario
+            # Convertimos el nombre de la clase a su ID numérico
+            labels.append(dict_labels[nombre])
+    # Al final devolvemos ambas listas
+    return paths, labels
+train_paths, train_labels = get_data("train")
+valid_paths, valid_labels = get_data("valid")
+test_paths, test_labels = get_data("test")
+
+
+assert len(train_paths) > 0, "No se ha cargado ningún dato de entrenamiento"
+assert len(train_paths) == 5163, "El número de datos de entrenamiento no es correcto"
+assert len(valid_paths) > 0, "No se ha cargado ningún dato de validación"
+assert len(valid_paths) == 1723, "El número de datos de validación no es correcto"
+assert len(test_paths) > 0, "No se ha cargado ningún dato de test"
+assert len(test_paths) == 1724, "El número de datos de test no es correcto"
+
+assert type(train_paths[0]) == str, "Los datos de entrenamiento no tienen la forma correcta"
+assert type(valid_paths[0]) == str, "Los datos de validación no tienen la forma correcta"
+assert type(test_paths[0]) == str, "Los datos de test no tienen la forma correcta"
+
+assert type(train_labels[0]) == int, "Las etiquetas de entrenamiento no tienen la forma correcta"
+assert type(valid_labels[0]) == int, "Las etiquetas de validación no tienen la forma correcta"
+assert type(test_labels[0]) == int, "Las etiquetas de test no tienen la forma correcta"
+
+assert len(dict_labels) == len(categories), "El diccionario de labels no tiene la longitud correcta"
+
+categories_sorted = sorted(categories)
+assert list(dict_labels.keys()) == categories_sorted, "Las llaves del diccionario de labels no son correctas"
+assert list(dict_labels.values()) == list(range(len(categories))), "Los valores del diccionario de labels no son correctos"
+
+assert min([dict_labels[train_paths[i].split(os.sep)[-2]] == train_labels[i] for i in range(len(train_paths))]), "Las etiquetas de entrenamiento no coinciden"
+assert min([dict_labels[valid_paths[i].split(os.sep)[-2]] == valid_labels[i] for i in range(len(valid_paths))]), "Las etiquetas de validación no coinciden"
+assert min([dict_labels[test_paths[i].split(os.sep)[-2]] == test_labels[i] for i in range(len(test_paths))]), "Las etiquetas de test no coinciden"
+
+
+def count_by_class(labels: list, dict_labels: dict) -> dict:
+    """
+    Cuenta cuántas imágenes hay por cada clase a partir de la lista de labels.
+
+    Args:
+        labels (list): Lista de etiquetas numéricas.
+        dict_labels (dict): Diccionario clase -> ID.
+
+    Returns:
+        dict: Diccionario clase -> cantidad de imágenes.
+    """
+
+    # Invertimos el diccionario para pasar de ID -> nombre de clase
+    id_to_class = {idx: class_name for class_name, idx in dict_labels.items()}
+    
+    # Contamos cuántas veces aparece cada label
+    counts = Counter(labels)
+    
+    # Construimos un nuevo diccionario con nombres de clase como llaves
+    class_counts = {id_to_class[idx]: counts.get(idx, 0) for idx in sorted(id_to_class)}
+    
+    return class_counts
+
+
+def plot_horizontal_bars(class_counts: dict, title: str, color: str = "skyblue"):
+    """
+    Grafica una barra horizontal con el número de imágenes por clase.
+
+    Args:
+        class_counts (dict): Diccionario clase -> cantidad.
+        title (str): Título de la gráfica.
+        color (str): Color de las barras.
+    """
+    # Guardamos por separado los nombres de clases y sus cantidades
+    class_names = list(class_counts.keys())
+    values = list(class_counts.values())
+    
+    # Creamos la figura
+    plt.figure(figsize=(10, 5))
+    
+    # Hacemos la gráfica horizontal
+    bars = plt.barh(class_names, values, color=color)
+    
+    # Ponemos título y nombres de ejes
+    plt.title(title, fontsize=14)
+    plt.xlabel("Número de imágenes")
+    plt.ylabel("Clase")
+    
+    # Escribimos el valor al final de cada barra
+    for bar in bars:
+        width = bar.get_width()
+        plt.text(
+            width + 1,                         
+            bar.get_y() + bar.get_height()/2, 
+            str(int(width)),                  
+            va='center'
+        )
+
+    plt.tight_layout()
+    plt.show()
+
+
+train_counts = count_by_class(train_labels, dict_labels)
+valid_counts = count_by_class(valid_labels, dict_labels)
+test_counts  = count_by_class(test_labels, dict_labels)
+
+
+plot_horizontal_bars(train_counts, "Conjunto de entrenamiento", color="steelblue")
+plot_horizontal_bars(valid_counts, "Conjunto de validación", color="seagreen")
+plot_horizontal_bars(test_counts, "Conjunto de prueba", color="salmon")
+
+
+def normalize_counts(class_counts: dict) -> dict:
+    """
+    Convierte un diccionario de conteos a proporciones.
+
+    Args:
+        class_counts (dict): clase a número de imágenes
+
+    Returns:
+        dict: clase a proporción
+    """
+    total=sum(class_counts.values())#calculé el total de imágenes en el subconjunto
+    #dividimos cada valor por el total
+    normalized={cls:count/total for cls,count in class_counts.items()}#convertimos los conteos en proporciones
+    return normalized#retorné el diccionario con proporciones
+
+# normalizar cada conjunto
+train_norm=normalize_counts(train_counts)#apliqué la normalización al conjunto de entrenamiento
+valid_norm=normalize_counts(valid_counts)#apliqué la normalización al conjunto de validación
+test_norm=normalize_counts(test_counts)#apliqué la normalización al conjunto de prueba
+
+# construir la tabla final
+# crear lista de clases
+class_names=list(train_norm.keys())#obtuvimos los nombres de las clases a partir del diccionario
+
+# Construir DataFrame
+df_proportions=pd.DataFrame({"Clase":class_names,"Train":[train_norm[cls] for cls in class_names],"Valid":[valid_norm[cls] for cls in class_names],"Test":[test_norm[cls] for cls in class_names]})#construimos la tabla con las proporciones por clase y subconjunto
+
+df_proportions#mostrar la tabla final con las proporciones
+
+
+def example(paths,labels,dict_labels):
+    """
+    Obtiene una imagen de ejemplo por cada clase.
+    
+    Returns:
+        dict: clase -> path de una imagen
+    """
+    # Invertimos el diccionario para poder pasar de ID a nombre de clase
+    id_to_class={idx:cls for cls,idx in dict_labels.items()}#esto permite traducir la etiqueta numérica al nombre de la especie
+    
+    # Creamos un diccionario donde vamos a guardar una imagen por clase
+    examples={}
+    
+    # Recorremos simultáneamente las rutas de las imágenes y sus etiquetas
+    for path,label in zip(paths,labels):
+        class_name=id_to_class[label]#obtenemos el nombre de la clase correspondiente a la imagen
+        
+        # Si aún no hemos guardado una imagen de esta clase, la almacenamos
+        if class_name not in examples:
+            examples[class_name]=path#guardamos la primera imagen que encontramos para esa clase
+        
+        # Si ya tenemos una imagen por cada clase, detenemos el ciclo para no seguir recorriendo innecesariamente
+        if len(examples)==len(dict_labels):
+            break
+    
+    # Retornamos el diccionario con una imagen de ejemplo por cada clase
+    return examples
+
+
+train_examples=example(train_paths, train_labels, dict_labels)
+valid_examples=example(valid_paths, valid_labels, dict_labels)
+test_examples=example(test_paths, test_labels, dict_labels)
+
+
+
+def plot_examples_table(train_ex, valid_ex, test_ex):
+    classes = list(train_ex.keys())
+    fig, axes = plt.subplots(len(classes), 4, figsize=(12, 3 * len(classes)))
+    # Encabezados
+    headers = ["Clase", "Train", "Valid", "Test"]
+    for col in range(4):
+        axes[0, col].set_title(headers[col], fontsize=12)
+    for i, cls in enumerate(classes):
+        # Columna 0: nombre de la clase (texto)
+        axes[i, 0].text(0.5, 0.5, cls, ha='center', va='center')
+        axes[i, 0].axis('off')
+        # Train
+        img = cv2.imread(train_ex[cls])
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        axes[i, 1].imshow(img)
+        axes[i, 1].axis('off')
+        # Valid
+        img = cv2.imread(valid_ex[cls])
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        axes[i, 2].imshow(img)
+        axes[i, 2].axis('off')
+        # Test
+        img = cv2.imread(test_ex[cls])
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        axes[i, 3].imshow(img)
+        axes[i, 3].axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+
+# tabla
+plot_examples_table(train_examples, valid_examples, test_examples)
+
+
+def analyze_images(paths:list):
+    """
+    Analiza si las imágenes son RGB o escala de grises
+    y obtiene estadísticas de tamaño.
+    
+    Args:
+        paths (list): lista de rutas de imágenes
+        
+    Returns:
+        dict: estadísticas calculadas
+    """
+    gray_count=0#contador de imágenes en escala de grises
+    color_count=0#contador de imágenes a color
+    heights=[]#lista para almacenar alturas
+    widths=[]#lista para almacenar anchos
+    
+    for path in paths:#recorremos todas las rutas de imágenes
+        img=cv2.imread(path)#leemos la imagen con OpenCV
+        
+        if img is None:#si la imagen no se pudo cargar, la ignoramos
+            continue
+        
+        #obtener dimensiones
+        h,w=img.shape[:2]#extraemos alto y ancho de la imagen
+        heights.append(h)#guardamos la altura
+        widths.append(w)#guardamos el ancho
+        
+        #revisar si es escala de grises
+        #(si los 3 canales son iguales)
+        if len(img.shape)==2:#si la imagen tiene solo una dimensión de canal, es gris
+            gray_count+=1
+        else:
+            #verificamos si los tres canales son iguales (aunque tenga 3 canales)
+            if (img[:,:,0]==img[:,:,1]).all() and (img[:,:,1]==img[:,:,2]).all():
+                gray_count+=1#es técnicamente gris aunque esté en formato de 3 canales
+            else:
+                color_count+=1#la imagen sí contiene información de color real
+    
+    total=gray_count+color_count#calculamos el total de imágenes analizadas
+    
+    stats={
+        "Total imágenes":total,#número total de imágenes procesadas
+        "Color":color_count,#cantidad de imágenes a color
+        "Escala de grises":gray_count,#cantidad de imágenes en gris
+        "Proporción color":color_count/total if total>0 else 0,#porcentaje de imágenes a color
+        "Alto promedio":np.mean(heights),#promedio de alturas
+        "Ancho promedio":np.mean(widths)#promedio de anchos
+    }
+
+    return stats#retornamos todas las estadísticas en un diccionario
+
+
+train_stats = analyze_images(train_paths)
+valid_stats = analyze_images(valid_paths)
+test_stats  = analyze_images(test_paths)
+
+
+df_stats = pd.DataFrame([train_stats, valid_stats, test_stats],
+                        index=["Train", "Valid", "Test"])
+
+df_stats
+
+
+def group_paths_by_class(paths,labels,dict_labels):
+    """
+    Agrupa las rutas de imágenes por clase.
+    """
+    
+    id_to_class={idx:cls for cls,idx in dict_labels.items()}#convertimos el diccionario para mapear de ID a nombre de clase
+    
+    class_paths={cls:[] for cls in dict_labels.keys()}#creamos un diccionario donde cada clase tiene una lista vacía
+    
+    for path,label in zip(paths,labels):#recorremos simultáneamente las rutas y sus etiquetas
+        class_name=id_to_class[label]#obtenemos el nombre de la clase correspondiente al label
+        class_paths[class_name].append(path)#agregamos la ruta a la lista de esa clase
+    
+    return class_paths#retornamos el diccionario con las rutas agrupadas por clase
+
+
+def analyze_per_class(class_paths:dict):
+    """
+    Calcula estadísticas por clase.
+    """
+    results=[]#lista donde vamos a guardar las estadísticas de cada clase
+    
+    for class_name,paths in class_paths.items():#recorremos cada clase junto con sus rutas de imágenes
+        
+        gray_count=0#contador de imágenes en escala de grises para esta clase
+        color_count=0#contador de imágenes a color para esta clase
+        heights=[]#lista para almacenar alturas de imágenes
+        widths=[]#lista para almacenar anchos de imágenes
+        
+        for path in paths:#recorremos todas las imágenes de la clase
+            img=cv2.imread(path)#leemos la imagen
+            
+            if img is None:#si la imagen no carga, la ignoramos
+                continue
+            
+            h,w=img.shape[:2]#obtenemos dimensiones de la imagen
+            heights.append(h)#guardamos la altura
+            widths.append(w)#guardamos el ancho
+            
+            #detectar si es gris
+            if len(img.shape)==2:#si solo tiene un canal, es escala de grises
+                gray_count+=1
+            else:
+                #verificamos si los tres canales son iguales
+                if (img[:,:,0]==img[:,:,1]).all() and (img[:,:,1]==img[:,:,2]).all():
+                    gray_count+=1#es una imagen gris en formato de 3 canales
+                else:
+                    color_count+=1#la imagen tiene color real
+        
+        total=gray_count+color_count#calculamos total de imágenes de la clase
+        
+        results.append({
+            "Clase":class_name,#nombre de la clase
+            "Total":total,#cantidad total de imágenes
+            "Color":color_count,#cantidad de imágenes a color
+            "Grises":gray_count,#cantidad de imágenes en escala de grises
+            "Alto_prom":np.mean(heights) if heights else 0,#promedio de altura
+            "Ancho_prom":np.mean(widths) if widths else 0#promedio de ancho
+        })#guardamos todas las estadísticas de la clase en la lista
+    
+    return pd.DataFrame(results)#convertimos la lista en una tabla tipo DataFrame
+
+
+train_class_paths = group_paths_by_class(train_paths, train_labels, dict_labels)
+
+df_train_class_stats = analyze_per_class(train_class_paths)
+
+df_train_class_stats
+
+
+valid_class_paths = group_paths_by_class(valid_paths, valid_labels, dict_labels)
+
+df_valid_class_stats = analyze_per_class(valid_class_paths)
+
+df_valid_class_stats
+
+
+test_class_paths = group_paths_by_class(test_paths, test_labels, dict_labels)
+
+df_test_class_stats = analyze_per_class(test_class_paths)
+
+df_test_class_stats
+
+
+def processing(Im: np.ndarray, img_size: tuple[int] | None = None, color_space: str | None = None) -> np.ndarray:
+    """Función que preprocesa una lista de imágenes.
+
+    Args:
+        Im_list (list[np.ndarray]): Lista con las imágenes a preprocesar.
+        img_size (tuple[int] | None): Tamaño de la imagen.
+        color_space (str | None): Espacio de color a utilizar. Puede ser "rgb", "gray", "hsv" o "lab".
+
+    Returns:
+        list[np.ndarray]: Lista con las imágenes preprocesadas.
+    """
+    
+    # YOUR CODE HERE
+    Im_processed = Im.copy()
+    
+    # Se redimensiona la imagen si se especifica un tamaño
+    if img_size is not None:
+        Im_processed = cv2.resize(Im_processed, img_size)
+        
+    # Se cambia el espacio de color si se especifica
+    if color_space is not None:
+        color_space = color_space.lower()
+        if color_space == "rgb":
+            Im_processed = cv2.cvtColor(Im_processed, cv2.COLOR_BGR2RGB)
+        elif color_space == "gray":
+            Im_processed = cv2.cvtColor(Im_processed, cv2.COLOR_BGR2GRAY)
+        elif color_space == "hsv":
+            Im_processed = cv2.cvtColor(Im_processed, cv2.COLOR_BGR2HSV)
+        elif color_space == "lab":
+            Im_processed = cv2.cvtColor(Im_processed, cv2.COLOR_BGR2LAB)
+    
+    return Im_processed
+
+
+
+Im_list = [cv2.imread(path) for path in train_paths[:5]]
+img_size = (224, 224)
+color_space = "rgb"
+Im_proc = [processing(Im, img_size, color_space) for Im in Im_list]
+
+assert len(Im_proc) == len(Im_list), "El número de imágenes preprocesadas no es correcto"
+assert type(Im_proc) == list, "Las imágenes preprocesadas no están en una lista"
+assert type(Im_proc[0]) == np.ndarray, "Las imágenes preprocesadas no son arreglos de numpy"
+assert np.array(Im_proc).shape[1:] == (224, 224, 3), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.cvtColor(cv2.resize(Im_list[0], (224, 224)), cv2.COLOR_BGR2RGB), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+color_space = "gray"
+Im_proc = [processing(Im, img_size, color_space) for Im in Im_list]
+assert np.array(Im_proc).shape[1:] == (224, 224), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.cvtColor(cv2.resize(Im_list[0], (224, 224)), cv2.COLOR_BGR2GRAY), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+color_space = "hsv"
+Im_proc = [processing(Im, img_size, color_space) for Im in Im_list]
+assert np.array(Im_proc).shape[1:] == (224, 224, 3), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.cvtColor(cv2.resize(Im_list[0], (224, 224)), cv2.COLOR_BGR2HSV), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+color_space = "lab"
+Im_proc = [processing(Im, img_size, color_space) for Im in Im_list]
+assert np.array(Im_proc).shape[1:] == (224, 224, 3), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.cvtColor(cv2.resize(Im_list[0], (224, 224)), cv2.COLOR_BGR2LAB), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+Im_proc = [processing(Im, (256, 256)) for Im in Im_list]
+assert np.array(Im_proc).shape[1:] == (256, 256, 3), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.resize(Im_list[0], (256, 256)), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+Im_proc = [processing(Im, None, "lab") for Im in Im_list]
+assert np.array_equal(cv2.cvtColor(Im_list[0], cv2.COLOR_BGR2LAB), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+
+def data_augmentation(Im: np.ndarray, transformations: list[str], alpha_factor: tuple[float] | None = None, beta_factor: tuple[int] | None = None) -> np.ndarray:
+    """Función que realiza data augmentation a una imagen.
+
+    Args:
+        Im (np.ndarray): Imagen a transformar.
+        transformations (list[str]): Lista de transformaciones a aplicar. Los valores posibles son "flip", "brightness", "contrast" y "brightness and contrast".
+        alpha_factor (tuple[float] | None): Factor de ajuste de brillo. Si es None, no se aplica.
+        beta_factor (tuple[int] | None): Factor de ajuste de contraste. Si es None, no se aplica.
+
+    Returns:
+        np.ndarray: Imagen transformada.
+    """
+    # YOUR CODE HERE
+    Im_aug = Im.copy()
+    
+    for t in transformations:
+        t = t.lower()
+        if t == "flip":
+            # Se realiza un espejo horizontal
+            Im_aug = cv2.flip(Im_aug, 1) 
+            
+        elif t == "contrast":
+            # Se realiza un ajuste de contraste con un factor alpha
+            alpha = random.uniform(alpha_factor[0], alpha_factor[1])
+            Im_aug = cv2.convertScaleAbs(Im_aug, alpha=alpha, beta=0)
+            
+        elif t == "brightness":
+            # Se realiza un ajuste de brillo con un factor beta
+            beta = random.uniform(beta_factor[0], beta_factor[1])
+            Im_aug = cv2.convertScaleAbs(Im_aug, alpha=1.0, beta=beta)
+            
+        elif t == "brightness and contrast":
+            # Se realiza un ajuste combinado de brillo y contraste con factores alpha y beta
+            alpha = random.uniform(alpha_factor[0], alpha_factor[1])
+            beta = random.uniform(beta_factor[0], beta_factor[1])
+            Im_aug = cv2.convertScaleAbs(Im_aug, alpha=alpha, beta=beta)
+            
+    return Im_aug
+
+
+Im = Im_list[0]
+transformations = ["flip"]
+Im_aug = data_augmentation(Im, transformations)
+Im_aug = cv2.cvtColor(Im_aug, cv2.COLOR_BGR2RGB)
+
+fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+ax[0].imshow(cv2.cvtColor(Im, cv2.COLOR_BGR2RGB))
+ax[0].set_title("Imagen original")
+ax[0].axis("off")
+ax[1].imshow(Im_aug)
+ax[1].set_title("Imagen aumentada (solo flip)")
+ax[1].axis("off")
+plt.show()
+
+assert Im.shape == Im_aug.shape, "La imagen aumentada no tiene el mismo tamaño que la original"
+assert np.array_equal(cv2.cvtColor(Im[:, ::-1], cv2.COLOR_BGR2RGB), Im_aug), "La imagen aumentada no es igual a la original"
+
+transformations = ["flip", "contrast"]
+random.seed(1) # Para reproducibilidad
+Im_aug = data_augmentation(Im, transformations, (1.5, 2.5))
+random.seed(1) # Para reproducibilidad
+first_way = cv2.convertScaleAbs(Im[:, ::-1], alpha=random.uniform(1.5, 2.5), beta=0)
+assert Im_aug.shape == Im.shape, "La imagen aumentada no tiene el mismo tamaño que la original"
+assert np.array_equal(first_way, Im_aug), "La imagen aumentada no es igual a la original"
+
+fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+ax[0].imshow(cv2.cvtColor(Im, cv2.COLOR_BGR2RGB))
+ax[0].set_title("Imagen original")
+ax[0].axis("off")
+ax[1].imshow(cv2.cvtColor(Im_aug, cv2.COLOR_BGR2RGB))
+ax[1].set_title("Imagen aumentada (flip y brillo)")
+ax[1].axis("off")
+plt.show()
+
+transformations = ["flip", "brightness"]
+random.seed(1) # Para reproducibilidad
+Im_aug = data_augmentation(Im, transformations, None, (20, 80))
+random.seed(1) # Para reproducibilidad
+first_way = cv2.convertScaleAbs(Im[:, ::-1], alpha=1, beta=random.uniform(20, 80))
+assert Im_aug.shape == Im.shape, "La imagen aumentada no tiene el mismo tamaño que la original"
+assert np.array_equal(first_way, Im_aug), "La imagen aumentada no es igual a la original"
+
+fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+ax[0].imshow(cv2.cvtColor(Im, cv2.COLOR_BGR2RGB))
+ax[0].set_title("Imagen original")
+ax[0].axis("off")
+ax[1].imshow(cv2.cvtColor(Im_aug, cv2.COLOR_BGR2RGB))
+ax[1].set_title("Imagen aumentada (flip y contraste)")
+ax[1].axis("off")
+plt.show()
+
+transformations = ["flip", "brightness and contrast"]
+random.seed(1) # Para reproducibilidad
+Im_aug = data_augmentation(Im, transformations, (1.5, 2.5), (20, 80))
+fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+ax[0].imshow(cv2.cvtColor(Im, cv2.COLOR_BGR2RGB))
+ax[0].set_title("Imagen original")
+ax[0].axis("off")
+ax[1].imshow(cv2.cvtColor(Im_aug, cv2.COLOR_BGR2RGB))
+ax[1].set_title("Imagen aumentada (flip, brillo y contraste)")
+ax[1].axis("off")
+plt.show()
+
+random.seed(1) # Para reproducibilidad
+alpha = random.uniform(1.5, 2.5)
+beta = random.uniform(20, 80)
+first_way = cv2.convertScaleAbs(Im[:, ::-1], alpha=alpha, beta=beta)
+assert np.array_equal(first_way, Im_aug), "La imagen aumentada no es igual a la original"
+
+
+import os
+import matplotlib.pyplot as plt
+import matplotlib
+import numpy as np
+
+# ── Datos extraídos del análisis del notebook ──────────────────────────────────
+clases_cortas = [
+    "O. hemionus",
+    "O. beecheyi",
+    "P. vitulina",
+    "S. niger",
+    "S. audubonii",
+]
+
+train_counts = [1286, 854, 713, 1795, 515]
+valid_counts = [429,  285, 238,  599, 172]
+test_counts  = [429,  285, 238,  599, 173]
+
+x = np.arange(len(clases_cortas))
+width = 0.28
+
+fig, ax = plt.subplots(figsize=(9, 4))
+
+bars_train = ax.bar(x - width, train_counts, width, label="Train",
+                    color="#2196F3", edgecolor="white", linewidth=0.5)
+bars_valid = ax.bar(x,          valid_counts, width, label="Valid",
+                    color="#FF9800", edgecolor="white", linewidth=0.5)
+bars_test  = ax.bar(x + width,  test_counts,  width, label="Test",
+                    color="#4CAF50", edgecolor="white", linewidth=0.5)
+
+ax.set_xlabel("Especie", fontsize=11)
+ax.set_ylabel("Número de imágenes", fontsize=11)
+ax.set_title("Distribución de imágenes por clase y subconjunto", fontsize=12)
+ax.set_xticks(x)
+ax.set_xticklabels(clases_cortas, rotation=15, ha="right", style="italic")
+ax.legend(framealpha=0.9)
+ax.yaxis.grid(True, linestyle="--", alpha=0.6)
+ax.set_axisbelow(True)
+
+for bar in list(bars_train) + list(bars_valid) + list(bars_test):
+    h = bar.get_height()
+    ax.text(bar.get_x() + bar.get_width() / 2., h + 15,
+            str(h), ha="center", va="bottom", fontsize=7)
+
+plt.tight_layout()
+os.makedirs("figs", exist_ok=True)
+plt.show()
+
+
+
+from utils import *
+converter("Entrega 1")
+
+
