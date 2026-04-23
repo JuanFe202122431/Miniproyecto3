@@ -1,0 +1,675 @@
+import sys
+print(sys.executable)
+
+
+# Importar librerias importantes
+import os
+import random
+import pickle
+import numpy as np
+from tqdm import tqdm
+from glob import glob
+from matplotlib import pyplot as plt
+
+from scipy.signal import correlate2d
+from scipy.io import loadmat
+
+import cv2
+
+from sklearn.metrics import precision_recall_fscore_support
+from sklearn.cluster import KMeans
+from sklearn.neighbors import KNeighborsClassifier
+
+
+group = 13
+
+
+def determine_classes(group: int) -> list:
+    """Función que determina las clases a utilizar en el proyecto.
+
+    Args:
+        group (int): Número de grupo.
+
+    Returns:
+        list: Lista con los nombres de las clases a utilizar.
+    """
+    # Se fija la semilla para reproducibilidad
+    random.seed(group)
+    
+    # Se obtienen las categorías y la cantidad de imágenes por categoría
+    stats = [('Canis latrans', 1286), ('Castor canadensis', 854), ('Dasypus novemcinctus', 515), ('Didelphis virginiana', 713), 
+             ('Lepus californicus', 515), ('Lynx rufus', 854), ('Megaptera novaeangliae', 515), ('Mephitis mephitis', 515), 
+             ('Odocoileus hemionus', 1286), ('Odocoileus virginianus', 1795), ('Otospermophilus beecheyi', 854), 
+             ('Otospermophilus variegatus', 515), ('Phoca vitulina', 713), ('Procyon lotor', 1286), ('Sciurus carolinensis', 1795), 
+             ('Sciurus niger', 1795), ('Sylvilagus audubonii', 515), ('Sylvilagus floridanus', 854), ('Tamias striatus', 854), 
+             ('Tamiasciurus hudsonicus', 713), ('Urocyon cinereoargenteus', 515), ('Ursus americanus', 713), ('Vulpes vulpes', 854)]
+    
+    # Se agrupan las categorías por cantidad de imágenes
+    clusters = {}
+    for category, num_images in stats:
+        if num_images in clusters:
+            clusters[num_images].append(category)
+        else:
+            clusters[num_images] = [category]
+    
+    # Se selecciona una categoría aleatoria de cada cluster
+    categories = []
+    for cluster_categories in clusters.values():
+        categories += [random.choice(cluster_categories)]
+    return categories
+
+assert group is not None, "Por favor, asigna un número de grupo a la variable 'group'."
+assert group > 0, "El número de grupo debe ser mayor que 0."
+assert group <= 28, "El número de grupo debe ser menor o igual que 28."
+
+categories = determine_classes(group)
+print(f"Las classes que usarán en este Mini-proyecto serán:\n{", ".join(categories)}.")
+
+
+dict_labels = {} # Cambiar por un diccionario con las etiquetas de las clases 
+
+# YOUR CODE HERE
+clases= ["Odocoileus hemionus","Otospermophilus beecheyi","Phoca vitulina","Sciurus niger", "Sylvilagus audubonii"]
+dict_labels={"Odocoileus hemionus":0, "Otospermophilus beecheyi":1,"Phoca vitulina":2,"Sciurus niger":3, "Sylvilagus audubonii":4}
+
+
+def get_data(subset: str) -> tuple[list, list]:
+    """Función que obtiene las rutas de las imágenes y sus etiquetas.
+
+    Args:
+        subset (str): Nombre del subconjunto de datos
+
+    Returns:
+        tuple[list, list]: Rutas de las imágenes y sus etiquetas.
+    """
+    
+    
+    paths=[] # Cambiar por una lista con las rutas de las imágenes 
+    labels=[] # Cambiar por una lista con las etiquetas de las imágenes
+    
+    # Construimos la ruta base al subconjunto (train, valid o test)
+    
+    base_path=f"dataset/{subset}"
+    
+    # Recorremos cada una de las clases que nos asignaron
+    for nombre in clases:
+        # Construimos la ruta de la carpeta de esa clase
+        class_path = os.path.join(base_path, nombre)
+        # Usamos glob para obtener todas las imágenes dentro de esa carpeta
+        image_paths = glob(os.path.join(class_path, "*"))
+        # Ahora recorremos cada imagen encontrada
+        for img_path in image_paths:
+            # Guardamos la ruta de la imagen
+            paths.append(img_path)
+            # Guardamos la etiqueta correspondiente usando el diccionario
+            # Convertimos el nombre de la clase a su ID numérico
+            labels.append(dict_labels[nombre])
+    # Al final devolvemos ambas listas
+    return paths, labels
+train_paths, train_labels = get_data("train")
+valid_paths, valid_labels = get_data("valid")
+test_paths, test_labels = get_data("test")
+
+
+assert len(train_paths) > 0, "No se ha cargado ningún dato de entrenamiento"
+assert len(train_paths) == 5163, "El número de datos de entrenamiento no es correcto"
+assert len(valid_paths) > 0, "No se ha cargado ningún dato de validación"
+assert len(valid_paths) == 1723, "El número de datos de validación no es correcto"
+assert len(test_paths) > 0, "No se ha cargado ningún dato de test"
+assert len(test_paths) == 1724, "El número de datos de test no es correcto"
+
+assert type(train_paths[0]) == str, "Los datos de entrenamiento no tienen la forma correcta"
+assert type(valid_paths[0]) == str, "Los datos de validación no tienen la forma correcta"
+assert type(test_paths[0]) == str, "Los datos de test no tienen la forma correcta"
+
+assert type(train_labels[0]) == int, "Las etiquetas de entrenamiento no tienen la forma correcta"
+assert type(valid_labels[0]) == int, "Las etiquetas de validación no tienen la forma correcta"
+assert type(test_labels[0]) == int, "Las etiquetas de test no tienen la forma correcta"
+
+assert len(dict_labels) == len(categories), "El diccionario de labels no tiene la longitud correcta"
+
+categories_sorted = sorted(categories)
+assert list(dict_labels.keys()) == categories_sorted, "Las llaves del diccionario de labels no son correctas"
+assert list(dict_labels.values()) == list(range(len(categories))), "Los valores del diccionario de labels no son correctos"
+
+assert min([dict_labels[train_paths[i].split(os.sep)[-2]] == train_labels[i] for i in range(len(train_paths))]), "Las etiquetas de entrenamiento no coinciden"
+assert min([dict_labels[valid_paths[i].split(os.sep)[-2]] == valid_labels[i] for i in range(len(valid_paths))]), "Las etiquetas de validación no coinciden"
+assert min([dict_labels[test_paths[i].split(os.sep)[-2]] == test_labels[i] for i in range(len(test_paths))]), "Las etiquetas de test no coinciden"
+
+
+def processing(Im: np.ndarray, img_size: tuple[int] | None = None, color_space: str | None = None) -> np.ndarray:
+    """Función que preprocesa una lista de imágenes.
+
+    Args:
+        Im_list (list[np.ndarray]): Lista con las imágenes a preprocesar.
+        img_size (tuple[int] | None): Tamaño de la imagen.
+        color_space (str | None): Espacio de color a utilizar. Puede ser "rgb", "gray", "hsv" o "lab".
+
+    Returns:
+        list[np.ndarray]: Lista con las imágenes preprocesadas.
+    """
+    
+    Im_processed = Im.copy()
+    
+    if img_size is not None:
+        Im_processed = cv2.resize(Im_processed, img_size)
+        
+    if color_space is not None:
+        color_space = color_space.lower()
+        if color_space == "rgb":
+            Im_processed = cv2.cvtColor(Im_processed, cv2.COLOR_BGR2RGB)
+        elif color_space == "gray":
+            Im_processed = cv2.cvtColor(Im_processed, cv2.COLOR_BGR2GRAY)
+        elif color_space == "hsv":
+            Im_processed = cv2.cvtColor(Im_processed, cv2.COLOR_BGR2HSV)
+        elif color_space == "lab":
+            Im_processed = cv2.cvtColor(Im_processed, cv2.COLOR_BGR2LAB)
+    
+    return Im_processed
+
+
+Im_list = [cv2.imread(path) for path in train_paths[:5]]
+img_size = (224, 224)
+color_space = "rgb"
+Im_proc = [processing(Im, img_size, color_space) for Im in Im_list]
+
+assert len(Im_proc) == len(Im_list), "El número de imágenes preprocesadas no es correcto"
+assert type(Im_proc) == list, "Las imágenes preprocesadas no están en una lista"
+assert type(Im_proc[0]) == np.ndarray, "Las imágenes preprocesadas no son arreglos de numpy"
+assert np.array(Im_proc).shape[1:] == (224, 224, 3), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.cvtColor(cv2.resize(Im_list[0], (224, 224)), cv2.COLOR_BGR2RGB), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+color_space = "gray"
+Im_proc = [processing(Im, img_size, color_space) for Im in Im_list]
+assert np.array(Im_proc).shape[1:] == (224, 224), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.cvtColor(cv2.resize(Im_list[0], (224, 224)), cv2.COLOR_BGR2GRAY), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+color_space = "hsv"
+Im_proc = [processing(Im, img_size, color_space) for Im in Im_list]
+assert np.array(Im_proc).shape[1:] == (224, 224, 3), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.cvtColor(cv2.resize(Im_list[0], (224, 224)), cv2.COLOR_BGR2HSV), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+color_space = "lab"
+Im_proc = [processing(Im, img_size, color_space) for Im in Im_list]
+assert np.array(Im_proc).shape[1:] == (224, 224, 3), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.cvtColor(cv2.resize(Im_list[0], (224, 224)), cv2.COLOR_BGR2LAB), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+Im_proc = [processing(Im, (256, 256)) for Im in Im_list]
+assert np.array(Im_proc).shape[1:] == (256, 256, 3), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.resize(Im_list[0], (256, 256)), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+Im_proc = [processing(Im, None, "lab") for Im in Im_list]
+assert np.array_equal(cv2.cvtColor(Im_list[0], cv2.COLOR_BGR2LAB), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+
+def color_hist(Im: np.ndarray, type_h: str, bins: int) -> np.ndarray:
+    """Función que calcula el histograma de color conjunto o concatenado de una imagen
+
+    Args:
+        Im (numpy.ndarray): Imagen a la que calcular el histograma
+        type_h (str): Tipo de histograma a calcular, puede ser "concat" o "joint"
+        bins (int): Cantidad de bins que usar en el histograma. En el caso de concat el número de bins finale será 3*bins
+        En el caso de Joint será bins^3
+        
+    Returns:
+        numpy.ndarray: Histograma de color normalizado
+    """
+    h = "" # Histograma de color normalizado
+    
+    if type_h.lower() == "concat":
+        h = []
+        for c in range(Im.shape[2]):
+            hist, _ = np.histogram(Im[:, :, c].flatten(), bins=bins)
+            h.append(hist)
+        h = np.concatenate(h).astype(float)
+
+    elif type_h.lower() == "joint":
+        h, _ = np.histogramdd(
+            Im.reshape(-1, 3).astype(float),
+            bins=bins
+        )
+        h = h.flatten()
+
+    h = h / h.sum()
+    return h
+
+
+img=processing(cv2.imread(os.path.join(".", "dataset", "train", "Canis latrans", "f494fab00ebb2d87c8d3bf5215560d54.jpg")),  (224, 224), 'rgb')
+concat_h=color_hist(img,'concat',10)
+joint_h=color_hist(img,'joint',10)
+
+
+fig,ax=plt.subplots(1,3,figsize=(15,5))
+ax[0].hist(list(range(len(concat_h))), list(range(len(concat_h - 1))), weights = concat_h)
+ax[0].set_title('Histograma concatenado')
+ax[1].hist(list(range(len(joint_h))), list(range(len(joint_h - 1))), weights = joint_h)
+ax[1].set_title('Histograma conjunto')
+ax[2].imshow(img)
+ax[2].axis('off')
+ax[2].set_title('Imagen original')
+
+plt.tight_layout()
+
+assert np.isclose(np.sum(concat_h),1,0.1), 'Su histograma concatenado no esta normalizado'
+assert np.isclose(np.sum(joint_h),1,0.1), 'Su histograma conjunto no esta normalizado'
+assert len(concat_h.shape)==1 and len(joint_h.shape)==1, 'Su histograma debe tener una unica dimension'
+assert np.isclose(len(concat_h)/3,len(joint_h)**(1/3),0.01),' Sus histogramas no tienen la cantidad de bins que deberían'
+assert np.isclose(np.std(concat_h),0.024,0.05), 'Su histograma de color concatenado es erroneo'
+assert np.isclose(np.std(joint_h),0.0063,0.05), 'Su histograma de color conjunto es erroneo'
+
+
+bins_color = 10  
+
+train_joint_color_desc  = []
+train_concat_color_desc = []
+valid_joint_color_desc  = []
+valid_concat_color_desc = []
+
+for path in tqdm(train_paths, desc="Train descriptors"):
+    Im = cv2.imread(path)
+    Im = processing(Im, (224, 224), "rgb")
+    train_joint_color_desc.append(color_hist(Im, "joint", bins_color))
+    train_concat_color_desc.append(color_hist(Im, "concat", bins_color))
+
+for path in tqdm(valid_paths, desc="Valid descriptors"):
+    Im = cv2.imread(path)
+    Im = processing(Im, (224, 224), "rgb")
+    valid_joint_color_desc.append(color_hist(Im, "joint", bins_color))
+    valid_concat_color_desc.append(color_hist(Im, "concat", bins_color))
+
+
+assert len(train_joint_color_desc) == 5163, 'La cantidad de descriptores no es igual a la cantidad de imágenes totales'
+assert len(train_concat_color_desc) == 5163, 'La cantidad de descriptores no es igual a la cantidad de imágenes totales'
+assert len(valid_joint_color_desc) == 1723, 'La cantidad de descriptores no es igual a la cantidad de imágenes totales'
+assert len(valid_concat_color_desc) == 1723, 'La cantidad de descriptores no es igual a la cantidad de imágenes totales'
+
+assert len(train_joint_color_desc[0])<= 7056, 'Su descriptor unimodal de color tiene demasiadas dimensiones'
+assert len(train_concat_color_desc[0])<= 7056, 'Su descriptor unimodal de color tiene demasiadas dimensiones'
+assert len(train_joint_color_desc[0]) == len(train_joint_color_desc[0]), 'Los descriptores conjuntos tienen diferentes dimensiones'
+assert len(train_concat_color_desc[0]) == len(valid_concat_color_desc[0]), 'Los descriptores concatenados tienen diferentes dimensiones'
+
+
+NNClassifier_concatcolor='' # Clasificador con histogramas concatenados de color
+NNClassifier_jointcolor='' # Clasificador con histogramas conjuntos de color
+
+predict_NNClassifier_concatcolor = '' # Predicciones del clasificador con histogramas concatenados de color
+predict_NNClassifier_jointcolor = '' # Predicciones del clasificador con histogramas conjuntos de color
+
+NNClassifier_concatcolor = KNeighborsClassifier(n_neighbors=5)
+NNClassifier_jointcolor  = KNeighborsClassifier(n_neighbors=5)
+
+NNClassifier_concatcolor.fit(train_concat_color_desc, train_labels)
+NNClassifier_jointcolor.fit(train_joint_color_desc, train_labels)
+
+predict_NNClassifier_concatcolor = NNClassifier_concatcolor.predict(valid_concat_color_desc)
+predict_NNClassifier_jointcolor  = NNClassifier_jointcolor.predict(valid_joint_color_desc)
+
+
+assert NNClassifier_concatcolor.n_samples_fit_ == 5163, 'No se entrenó el clasificador con histogramas concatenados de color'
+assert NNClassifier_concatcolor.n_features_in_ > 0, 'No se entrenó el clasificador con histogramas concatenados de color'
+assert NNClassifier_jointcolor.n_samples_fit_ == 5163, 'No se entrenó el clasificador con histogramas conjuntos de color'
+assert NNClassifier_jointcolor.n_features_in_ > 0, 'No se entrenó el clasificador con histogramas conjuntos de color'
+assert NNClassifier_concatcolor.classes_.shape[0] == len(categories), 'El clasificador con histogramas concatenados de color no tiene las clases correctas'
+assert NNClassifier_jointcolor.classes_.shape[0] == len(categories), 'El clasificador con histogramas conjuntos de color no tiene las clases correctas'
+
+assert len(predict_NNClassifier_concatcolor) == len(valid_concat_color_desc), 'El número de predicciones debe ser igual al número de descriptores de validación'
+assert len(predict_NNClassifier_jointcolor) == len(valid_joint_color_desc), 'El número de predicciones debe ser igual al número de descriptores de validación'
+
+
+precision_concatcolor = '' #Precision del clasificador con histogramas concatenados de color
+recall_concatcolor = '' #Recall del clasificador con histogramas concatenados de color
+f1_score_concatcolor = '' #F1 del clasificador con histogramas concatenados de color
+
+precision_jointcolor = '' #Precision del clasificador con histogramas conjuntos de color
+recall_jointcolor = '' #Recall del clasificador con histogramas conjuntos de color
+f1_score_jointcolor = '' #F1 del clasificador con histogramas conjuntos de color
+
+precision_concatcolor, recall_concatcolor, f1_score_concatcolor, _ = precision_recall_fscore_support(
+    valid_labels, predict_NNClassifier_concatcolor, average="macro"
+)
+
+precision_jointcolor, recall_jointcolor, f1_score_jointcolor, _ = precision_recall_fscore_support(
+    valid_labels, predict_NNClassifier_jointcolor, average="macro"
+)
+
+print("{:<25} | {:<14} {:<14} {:<14}".format('Modelo', 'Precisión', 'Cobertura', 'F1'))
+print('----------------------------------------------------------------------')
+print("{:<25} | {:<14.3f} {:<14.3f} {:<14.3f}".format('Histograma concatenado', precision_concatcolor, recall_concatcolor, f1_score_concatcolor))
+print("{:<25} | {:<14.3f} {:<14.3f} {:<14.3f}".format('Histograma Conjunto', precision_jointcolor, recall_jointcolor, f1_score_jointcolor))
+
+
+assert f1_score_concatcolor > 0.28, 'El modelo con histogramas concatenados de color debería tener una f-medida mayor'
+assert f1_score_jointcolor > 0.28, 'El modelo con histogramas cnojuntos de color debería tener una f-medida mayor'
+
+
+random.seed(42)
+sample_paths = random.sample(train_paths, 25)
+Im_list = [processing(cv2.imread(path), (256, 256), 'gray') for path in sample_paths]
+
+
+filterbank='' #arreglo de filtros
+
+filterbank_data = loadmat("filterbank.mat")
+filterbank = filterbank_data["filterbank"]
+
+print(f"Forma del filterbank: {filterbank.shape}")  # esperado: (49, 49, 18)
+
+
+def filter_map(Im: np.ndarray, filterbank: np.ndarray) -> np.ndarray:
+    """Funcion que aplica un banco de filtros a una imagen
+
+    Args:
+        Im (numpy.ndarray): Imagen de entrada RGB
+        filterbank (numpy.ndarray): Banco de filtros
+
+    Returns:
+        numpy.ndarray: Resultado de aplicar el banco de filtros a la imagen
+    """
+    new_im = '' #Imagen con los filtros aplicados
+    
+    if len(Im.shape) == 3:
+        Im = cv2.cvtColor(Im, cv2.COLOR_BGR2GRAY)
+    
+    n_filters = filterbank.shape[2]
+    h, w = Im.shape
+    new_im = np.zeros((h, w, n_filters))
+    
+    for i in range(n_filters):
+        new_im[:, :, i] = correlate2d(Im, filterbank[:, :, i], mode='same')
+    
+    return new_im
+
+
+img=processing(cv2.imread(os.path.join(".", "dataset", "train", "Canis latrans", "f494fab00ebb2d87c8d3bf5215560d54.jpg")), (256, 256), 'gray')
+new_img=filter_map(img,filterbank)
+
+x,y=img.shape
+x2,y2,f=new_img.shape
+a,b,f2=filterbank.shape
+
+assert f2==f, 'La imagen resultante debe tener la misma cantidad de canales como filtros en el filterbank'
+assert x==x2 and y==y2, 'Las dimensiones de la imagen original no deben cambiar'
+assert np.sum(np.std(new_img,axis=2))!=0, 'Usted usó el mismo filtro para todas las dimensiones'
+
+assert np.sum(new_img[:,:,0]-correlate2d(img,filterbank[:,:,0],'same'))==0, 'El primer canal de new_im no es el resultado del filtrado con el primer filtro'
+assert np.sum(new_img[:,:,2]-correlate2d(img,filterbank[:,:,2],'same'))==0, 'El primer canal de new_im no es el resultado del filtrado con el tercer filtro'
+
+try:
+    img_1=cv2.resize(cv2.imread(os.path.join(".", "dataset", "train", "Canis latrans", "f494fab00ebb2d87c8d3bf5215560d54.jpg")), (256, 256))
+    filter_map(img_1,filterbank)
+except:
+    assert False, 'Su función debe funcionar con imágenes a color'
+
+fig,ax=plt.subplots(2,3,figsize=(15,10))
+ax[0,0].set_title('Imagen original')
+ax[0,0].imshow(img, cmap='gray')
+ax[0,1].set_title('Imagen filtrada 1')
+ax[0,1].imshow(new_img[:,:,0])
+ax[0,2].set_title('Imagen filtrada 10')
+ax[0,2].imshow(new_img[:,:,9])
+
+ax[0,0].axis('off')
+ax[0,1].axis('off')
+ax[0,2].axis('off')
+
+ax[1,1].imshow(filterbank[:,:,0])
+ax[1,1].set_title('Filtro 1')
+ax[1,2].imshow(filterbank[:,:,9])
+ax[1,2].set_title('Filtro 10')
+
+ax[1,0].axis('off')
+ax[1,1].axis('off')
+ax[1,2].axis('off')
+
+plt.show()
+
+
+def pixel_dataset(Im_list: list[np.ndarray], filterbank: np.ndarray) -> list[np.ndarray]:
+    """Funcion que aplica un banco de filtros a una lista de imagenes y retorna un arreglo con los pixeles de las imagenes filtradas
+
+    Args:
+        Im_list (list[numpy.ndarray]): Lista de imágenes de entrada RGB
+        filterbank (numpy.ndarray): Banco de filtros
+
+    Returns:
+        list[numpy.ndarray]: Lista con los pixeles de las imagenes filtradas
+    """
+    pixels = [] #Lista con los pixeles de las imagenes filtradas
+    for Im in Im_list:
+        Im = processing(Im, (256, 256)) if Im.shape[:2] != (256, 256) else Im
+        fm = filter_map(Im, filterbank)          # (256, 256, 18)
+        fm_flat = fm.reshape(-1, fm.shape[2])    # (65536, 18)
+        pixels.extend(fm_flat.tolist())
+    
+    return pixels
+
+
+Pixels=pixel_dataset(Im_list,filterbank)
+
+assert len(Pixels)==256*256*25, f'Deben tener una cantidad de 1638400 datos, pues son 256x256 pixeles x 25 imagenes, usted tiene {len(Pixels)}'
+assert len(Pixels[0])==18, 'Las dimensiones de cada pixel deben ser 18, uno por cada filtro'
+assert 0 in np.sum(np.array(Pixels)-filter_map(Im_list[0],filterbank)[0,0,:],axis=1), 'Debe agregar todos los pixeles de la imagen a su lista, puede que haya agregado mal los pixeles'
+
+
+textones = 25 #cantidad de textones k
+model1='' #modelo K means entrenado
+
+model1 = KMeans(n_clusters=textones, random_state=42, n_init=10)
+model1.fit(Pixels)
+
+
+assert len(model1.cluster_centers_) ==textones, 'Debe entrenar su modelo Kmeans con la cantidad de textones establecido'
+assert model1.n_features_in_ == 18, 'Usted debe entrenar el modelo con el dataset de pixeles'
+
+
+def texture_map(Im: np.ndarray, filterbank: np.ndarray, texton_dict: KMeans) -> np.ndarray:
+    """Funcion que mapea una imagen a textones
+
+    Args:
+        Im (numpy.ndarray): Imagen de entrada RGB
+        filterbank (numpy.ndarray): Banco de filtros
+        texton_dict (KMeans): Diccionario de textones
+
+    Returns:
+        numpy.ndarray: Imagen mapeada a textones
+    """
+    # Se calcula el mapa de filtros: (H, W, N_filtros)
+    fmap = filter_map(Im, filterbank)
+
+    # Se convertir a lista de pixeles: (H*W, N_filtros)
+    h, w, n_filters = fmap.shape
+    pixels = fmap.reshape(-1, n_filters)
+
+    # Se predice la etiqueta de textón para cada pixel
+    labels = texton_dict.predict(pixels)
+
+    # Se reconstruye la imagen 2D de etiquetas: (H, W)
+    texture_im = labels.reshape(h, w)
+
+    return texture_im
+
+
+img=processing(cv2.imread(os.path.join(".", "dataset", "train", "Canis latrans", "f494fab00ebb2d87c8d3bf5215560d54.jpg")),  (256, 256), 'gray')
+texture_img=texture_map(img,filterbank,model1)
+
+x,y=img.shape
+
+assert len(texture_img.shape)==2, 'Su imagen debería tener solo 2 dimensiones'
+x2,y2=texture_img.shape
+assert x==x2 and y==y2, 'Las dimensiones de su imagen no deberían cambiar'
+assert model1.predict([filter_map(img,filterbank)[0,0,:]])==texture_img[0,0],'La predicción del pixel 0,0 es erroneo'
+assert model1.predict([filter_map(img,filterbank)[24,24,:]])==texture_img[24,24],'La predicción del pixel 24,24 es erroneo'
+
+fig,ax=plt.subplots(1,2,figsize=(10,10))
+ax[0].imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+ax[1].imshow(texture_img)
+
+ax[0].axis('off')
+ax[1].axis('off')
+plt.show()
+
+
+def texture_histogram(Im: np.ndarray, filterbank: np.ndarray, texton_dict: KMeans, bins: int) -> np.ndarray:
+    """Funcion que calcula el histograma de textones de una imagen
+
+    Args:
+        Im (numpy.ndarray): Imagen de entrada RGB
+        filterbank (numpy.ndarray): Banco de filtros
+        texton_dict (KMeans): Diccionario de textones
+        bins (int): Número de bins del histograma
+
+    Returns:
+        numpy.ndarray: Histograma de textones normalizado
+    """
+    # Se obtiene el mapa de texturas (H, W)
+    tmap = texture_map(Im, filterbank, texton_dict)
+
+    # Se convierte el mapa en vector para calcular el histograma
+    labels = tmap.reshape(-1)
+
+    # Se calcula el histograma de etiquetas
+    histogram, _ = np.histogram(labels, bins=bins, range=(0, bins))
+
+    # Se normaliza para que la suma sea 1
+    histogram = histogram.astype(np.float64)
+    histogram = histogram / histogram.sum()
+
+    return histogram
+
+
+histogram_text=texture_histogram(img,filterbank,model1,textones)
+assert np.isclose(np.sum(histogram_text),1), 'El histograma no esta normalizado'
+assert len(histogram_text)==textones, 'El histograma no tiene la cantidad de bins que se indicó'
+
+
+train_labels_list = [] #lista de etiquetas de entrenamiento
+train_texture_desc=[] #vector de descriptores
+
+valid_labels_list = [] #lista de etiquetas de validación
+valid_texture_desc=[] #vector de descriptores
+# YOUR CODE HERE
+
+# --- Entrenamiento: 30 imágenes por clase = 150 total ---
+# Fijamos la semilla aleatoria para que el muestreo de imágenes sea reproducible 
+# y siempre obtengamos los mismos resultados al correr el código.
+random.seed(42)
+
+# 1. Agrupacion: Creamos un diccionario donde las llaves son los IDs de las clases (0 al 4)
+# y los valores son listas vacías que llenaremos con las rutas de las imágenes.
+train_by_class = {label: [] for label in range(len(clases))}
+for path, label in zip(train_paths, train_labels):
+    train_by_class[label].append(path)
+
+# 2. Extraccion equilibrada: Iteramos sobre cada una de las 5 clases.
+for label in range(len(clases)):
+    # Seleccionamos aleatoriamente 30 rutas de la clase actual (30 * 5 = 150 imágenes en total)
+    selected_paths = random.sample(train_by_class[label], 30)
+    
+    # Procesamos cada una de las 30 imágenes seleccionadas
+    for path in selected_paths:
+        Im = cv2.imread(path) # Cargamos la imagen
+        Im = processing(Im, (256, 256)) # Redimensionamos a 256x256
+        # Obtenemos el histograma de textones
+        desc = texture_histogram(Im, filterbank, model1, textones)
+        # Almacenamos el descriptor y su etiqueta correspondiente en las listas finales
+        train_texture_desc.append(desc)
+        train_labels_list.append(label)
+
+# --- Validación: 10 imágenes por clase = 50 total ---
+# Se repite el proceso de agrupación, pero para el conjunto de validación.
+valid_by_class = {label: [] for label in range(len(clases))}
+for path, label in zip(valid_paths, valid_labels):
+    valid_by_class[label].append(path)
+
+# Extraemos de forma equilibrada 10 imágenes por clase (10 * 5 = 50 imágenes en total)
+for label in range(len(clases)):
+    selected_paths = random.sample(valid_by_class[label], 10)
+    for path in selected_paths:
+        Im = cv2.imread(path)
+        Im = processing(Im, (256, 256))
+        desc = texture_histogram(Im, filterbank, model1, textones)
+        valid_texture_desc.append(desc)
+        valid_labels_list.append(label)
+
+# 3. Guardado de datos: Usamos la librería pickle.
+# Para guardar los descriptores de textura y las etiquetas en archivos .pkl. 
+# Esto evita tener que volver a extraer los textones si reiniciamos el kernel.
+with open('train_texture.pkl', 'wb') as f:
+    pickle.dump((train_texture_desc, train_labels_list), f)
+with open('valid_texture.pkl', 'wb') as f:
+    pickle.dump((valid_texture_desc, valid_labels_list), f)
+
+
+assert len(valid_texture_desc[0]) == len(train_texture_desc[0]), 'Los descriptores no son de la misma dimensión'
+assert len(valid_texture_desc) == len(valid_labels_list), 'Usted no cargó la cantidad correcta de etiquetas'
+assert len(train_texture_desc) == len(train_labels_list), 'Usted no cargó la cantidad correcta de etiquetas'
+
+
+predict_vector=[] #vector de etiquetas predichas
+NNclassifier = '' #modelo de clasificador
+# YOUR CODE HERE
+
+# Instanciar el modelo
+NNclassifier = KNeighborsClassifier(n_neighbors=1)
+
+# Entrenar el modelo con los descriptores de entrenamiento
+NNclassifier.fit(train_texture_desc, train_labels_list)
+
+# Predecir las etiquetas para el conjunto de validación
+predict_vector = NNclassifier.predict(valid_texture_desc)
+
+
+assert len(predict_vector)==len(valid_texture_desc), 'El vector de predicciones debe la misma cantidad que descriptores de validación'
+assert NNclassifier.n_features_in_== 25, 'El modelo no tiene la cantidad de textones correcta'
+assert NNclassifier.n_samples_fit_ == 150, 'El modelo no fue entrenado correctamente'
+
+
+precision='' #Vector de precisión de cada categoría
+recall='' #Vector de cobertura de cada categoría
+f1_score='' #Vector de f medida de cada categoría
+# YOUR CODE HERE
+
+# Calcular métricas globales con average="macro"
+precision, recall, f1_score, _ = precision_recall_fscore_support(
+    valid_labels_list, predict_vector, average="macro"
+)
+
+# Imprimir los resultados
+print(f"Precisión: {precision:.3f} | Cobertura: {recall:.3f} | F1: {f1_score:.3f}")
+
+
+assert f1_score > 0.16, 'La f-medida no es la esperada'
+
+
+import torch
+
+def filter_map(Im: np.ndarray, filterbank: np.ndarray) -> torch.tensor:
+    """Funcion que aplica un banco de filtros a una imagen
+
+    Args:
+        Im (numpy.ndarray): Imagen de entrada RGB
+
+    Returns:
+        numpy.ndarray: Resultado de aplicar el banco de filtros a la imagen
+    """
+    if len(Im.shape) == 3:
+        Im = cv2.cvtColor(Im, cv2.COLOR_BGR2GRAY)
+        
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dtype = torch.float32
+
+    Im = torch.tensor(Im, dtype=dtype, device=device)
+    Im = Im[None, None]
+    filterbank = torch.tensor(filterbank, dtype=dtype, device=device)
+    filterbank = filterbank.permute(2, 0, 1)[:, None]
+    convolution = torch.nn.functional.conv2d(Im, filterbank, padding="same")
+    convolution = convolution.permute(0, 2, 3, 1)
+    new_im = convolution.to("cpu").numpy()[0]
+
+    return new_im
+
+
+from utils import *
+converter("Entrega 2")
+
+
